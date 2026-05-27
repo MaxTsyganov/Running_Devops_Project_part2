@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3-Tier AWS App</title>
+  <style>
+    /* ── Reset & Base ──────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f0f2f5;
+      color: #1a1a2e;
+      min-height: 100vh;
+    }
+
+    /* ── Header ────────────────────────────────────────────────────────────── */
+    header {
+      background: linear-gradient(135deg, #232f3e, #ff9900);
+      color: #fff;
+      padding: 1.5rem 2rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    header h1 { font-size: 1.5rem; font-weight: 700; }
+    header p  { font-size: 0.85rem; opacity: 0.85; }
+
+    /* ── Architecture Badge ─────────────────────────────────────────────────── */
+    .arch-bar {
+      background: #fff;
+      border-bottom: 1px solid #ddd;
+      padding: 0.6rem 2rem;
+      font-size: 0.8rem;
+      color: #666;
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .badge {
+      background: #e8f4fd;
+      border: 1px solid #bee3f8;
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-weight: 600;
+      color: #2b6cb0;
+    }
+    .arrow { color: #aaa; }
+
+    /* ── Main layout ────────────────────────────────────────────────────────── */
+    main {
+      max-width: 900px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+    @media (max-width: 640px) { main { grid-template-columns: 1fr; } }
+
+    /* ── Card ───────────────────────────────────────────────────────────────── */
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+      padding: 1.5rem;
+    }
+    .card h2 {
+      font-size: 1rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 2px solid #ff9900;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .card h2 .icon { font-size: 1.2rem; }
+
+    /* ── Forms ──────────────────────────────────────────────────────────────── */
+    label { display: block; font-size: 0.8rem; font-weight: 600; color: #555; margin-bottom: 0.3rem; }
+    input[type="text"], input[type="file"], textarea {
+      width: 100%;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      font-size: 0.9rem;
+      margin-bottom: 0.75rem;
+      transition: border-color 0.2s;
+    }
+    input:focus, textarea:focus { outline: none; border-color: #ff9900; }
+    textarea { height: 70px; resize: vertical; }
+
+    button {
+      background: #ff9900;
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      padding: 0.55rem 1.2rem;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+      width: 100%;
+    }
+    button:hover   { background: #e88900; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+
+    /* ── Status / Flash messages ─────────────────────────────────────────────── */
+    .flash {
+      font-size: 0.82rem;
+      border-radius: 5px;
+      padding: 0.5rem 0.75rem;
+      margin-top: 0.75rem;
+      display: none;
+    }
+    .flash.ok    { background: #e6ffed; color: #276749; border: 1px solid #9ae6b4; }
+    .flash.error { background: #fff5f5; color: #c53030; border: 1px solid #feb2b2; }
+
+    /* ── Item / Upload list ──────────────────────────────────────────────────── */
+    .full-width { grid-column: 1 / -1; }
+
+    .items-list { margin-top: 0.5rem; }
+    .item-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid #f0f0f0;
+      font-size: 0.88rem;
+      gap: 0.5rem;
+    }
+    .item-row:last-child { border-bottom: none; }
+    .item-name { font-weight: 600; }
+    .item-desc { color: #777; font-size: 0.8rem; flex: 1; margin-left: 0.5rem; }
+
+    .badge-status {
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 12px;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .pending { background: #fffbeb; color: #b7791f; border: 1px solid #fbd38d; }
+    .done    { background: #e6ffed; color: #276749; border: 1px solid #9ae6b4; }
+
+    .empty-state {
+      text-align: center;
+      color: #aaa;
+      font-size: 0.85rem;
+      padding: 1.5rem 0;
+    }
+
+    /* ── Health indicator ────────────────────────────────────────────────────── */
+    .health-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+      background: #ccc;
+      margin-right: 5px;
+    }
+    .health-dot.ok    { background: #48bb78; box-shadow: 0 0 6px #48bb78; }
+    .health-dot.error { background: #fc8181; }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     HEADER
+════════════════════════════════════════════════════════════════════════ -->
+<header>
+  <div>
+    <h1>🚀 3-Tier AWS App</h1>
+    <p>DevOps Demo — Nginx · Flask · PostgreSQL · S3 · SNS</p>
+  </div>
+</header>
+
+<!-- Architecture breadcrumb -->
+<div class="arch-bar">
+  <span>You are here →</span>
+  <span class="badge">Tier 1: Nginx (Frontend)</span>
+  <span class="arrow">↔</span>
+  <span class="badge">Tier 2: Flask API (Backend)</span>
+  <span class="arrow">↔</span>
+  <span class="badge">RDS (PostgreSQL)</span>
+  &nbsp;|&nbsp;
+  <span class="badge">S3 (Storage)</span>
+  &nbsp;|&nbsp;
+  <span class="badge">SNS (Email)</span>
+  &nbsp;|&nbsp;
+  <span class="badge">Tier 3: Worker</span>
+  &nbsp;&nbsp;
+  <span id="health-label">
+    <span class="health-dot" id="healthDot"></span>
+    <span id="healthText">Checking API…</span>
+  </span>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     MAIN CONTENT
+════════════════════════════════════════════════════════════════════════ -->
+<main>
+
+  <!-- ── Create Item card ─────────────────────────────────────────────────── -->
+  <div class="card">
+    <h2><span class="icon">📝</span> Create Item (writes to RDS)</h2>
+    <form id="createItemForm">
+      <label for="itemName">Item name *</label>
+      <input id="itemName" type="text" placeholder="e.g. Deploy to production" required />
+
+      <label for="itemDesc">Description</label>
+      <textarea id="itemDesc" placeholder="Optional details…"></textarea>
+
+      <button type="submit" id="createBtn">Add Item</button>
+    </form>
+    <div id="createFlash" class="flash"></div>
+  </div>
+
+  <!-- ── Upload File card ─────────────────────────────────────────────────── -->
+  <div class="card">
+    <h2><span class="icon">☁️</span> Upload File (to S3)</h2>
+    <form id="uploadForm">
+      <label for="fileInput">Choose file</label>
+      <input id="fileInput" type="file" required />
+      <button type="submit" id="uploadBtn">Upload to S3</button>
+    </form>
+    <div id="uploadFlash" class="flash"></div>
+  </div>
+
+  <!-- ── Items List (full width) ──────────────────────────────────────────── -->
+  <div class="card full-width">
+    <h2>
+      <span class="icon">📋</span> Items in Database
+      <button
+        id="refreshBtn"
+        style="width:auto; padding: 0.3rem 0.8rem; font-size:0.78rem; margin-left:auto;"
+        onclick="loadItems()"
+      >↻ Refresh</button>
+    </h2>
+    <div id="itemsList" class="items-list">
+      <div class="empty-state">Loading…</div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     JAVASCRIPT  —  All API calls go through Nginx proxy (/api/...)
+     Nginx forwards them to http://BACKEND_SERVER_IP:5000
+════════════════════════════════════════════════════════════════════════ -->
+<script>
+  // ─── Configuration ─────────────────────────────────────────────────────────
+  //
+  //  All fetch() calls use relative paths (/api/...).
+  //  Nginx is configured to proxy /api/ → http://BACKEND_IP:5000
+  //  So you never hard-code the backend IP in this file.
+  //
+  const API_BASE = "/api";    // Nginx proxies this to the backend server
+
+  // ─── Utility helpers ────────────────────────────────────────────────────────
+
+  function showFlash(id, message, type) {
+    const el = document.getElementById(id);
+    el.textContent = message;
+    el.className = `flash ${type}`;
+    el.style.display = "block";
+    // Auto-hide after 6 seconds
+    setTimeout(() => { el.style.display = "none"; }, 6000);
+  }
+
+  function setBtn(id, text, disabled) {
+    const btn = document.getElementById(id);
+    btn.textContent = text;
+    btn.disabled = disabled;
+  }
+
+  // ─── Health check ───────────────────────────────────────────────────────────
+  async function checkHealth() {
+    try {
+      const res  = await fetch(`${API_BASE}/health`);
+      const data = await res.json();
+      if (res.ok) {
+        document.getElementById("healthDot").className  = "health-dot ok";
+        document.getElementById("healthText").textContent = "API reachable";
+      } else {
+        throw new Error(data.detail || "unhealthy");
+      }
+    } catch (e) {
+      document.getElementById("healthDot").className  = "health-dot error";
+      document.getElementById("healthText").textContent = "API unreachable";
+    }
+  }
+
+  // ─── Load items from RDS (via backend) ──────────────────────────────────────
+  async function loadItems() {
+    const container = document.getElementById("itemsList");
+    container.innerHTML = '<div class="empty-state">Loading…</div>';
+
+    try {
+      const res  = await fetch(`${API_BASE}/items`);
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error || "Unknown error");
+
+      const items = data.items;
+      if (items.length === 0) {
+        container.innerHTML = '<div class="empty-state">No items yet — create one above.</div>';
+        return;
+      }
+
+      // Build the list HTML
+      container.innerHTML = items.map(item => `
+        <div class="item-row">
+          <span class="item-name">#${item.id} ${escapeHtml(item.name)}</span>
+          <span class="item-desc">${escapeHtml(item.description || "")}</span>
+          <span class="badge-status ${item.status}">${item.status}</span>
+        </div>
+      `).join("");
+
+    } catch (e) {
+      container.innerHTML = `<div class="empty-state" style="color:#c53030">Error: ${e.message}</div>`;
+    }
+  }
+
+  // ─── Create a new item (POST /api/items) ──────────────────────────────────
+  document.getElementById("createItemForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    const name = document.getElementById("itemName").value.trim();
+    const desc = document.getElementById("itemDesc").value.trim();
+    if (!name) return;
+
+    setBtn("createBtn", "Saving…", true);
+
+    try {
+      const res  = await fetch(`${API_BASE}/items`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ name, description: desc }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error || "Request failed");
+
+      showFlash("createFlash", `✅ Item "${data.name}" created (id=${data.id}). SNS email sent!`, "ok");
+      document.getElementById("itemName").value = "";
+      document.getElementById("itemDesc").value = "";
+      loadItems(); // refresh the list
+
+    } catch (e) {
+      showFlash("createFlash", `❌ Error: ${e.message}`, "error");
+    } finally {
+      setBtn("createBtn", "Add Item", false);
+    }
+  });
+
+  // ─── Upload a file to S3 (POST /api/upload) ────────────────────────────────
+  document.getElementById("uploadForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    const fileInput = document.getElementById("fileInput");
+    if (!fileInput.files.length) return;
+
+    const formData = new FormData();
+    formData.append("file", fileInput.files[0]);
+
+    setBtn("uploadBtn", "Uploading…", true);
+
+    try {
+      const res  = await fetch(`${API_BASE}/upload`, {
+        method: "POST",
+        body:   formData,   // multipart/form-data — browser sets Content-Type automatically
+      });
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error || "Upload failed");
+
+      showFlash(
+        "uploadFlash",
+        `✅ "${data.filename}" uploaded to S3! SNS email sent.\n🔑 Key: ${data.s3_key}`,
+        "ok"
+      );
+      fileInput.value = "";
+
+    } catch (e) {
+      showFlash("uploadFlash", `❌ Error: ${e.message}`, "error");
+    } finally {
+      setBtn("uploadBtn", "Upload to S3", false);
+    }
+  });
+
+  // ─── Escape HTML to prevent XSS ─────────────────────────────────────────────
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  // ─── Init ────────────────────────────────────────────────────────────────────
+  checkHealth();
+  loadItems();
+</script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+# ── Backend API dependencies ─────────────────────────────────────────────────
+# Pin exact versions for reproducible builds in production.
+
+flask==3.0.3
+flask-cors==4.0.1
+psycopg2-binary==2.9.9      # PostgreSQL driver (binary = no local build needed)
+boto3==1.34.131             # AWS SDK (S3 + SNS)
+python-dotenv==1.0.1        # Load .env file in development
+gunicorn==22.0.0            # Production WSGI server (replaces flask dev server)
