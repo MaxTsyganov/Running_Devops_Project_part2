@@ -1,1 +1,14 @@
 *.pem
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Environment variables and Logs
+.env
+*.log
+backend.log
+worker.log
+
+# OS generated files
+.DS_Store
