@@ -20,3 +20,4 @@ vars.yml
 *.tfstate
 *.tfstate.*
 crash.log
+*.zip
