@@ -91,8 +91,8 @@ resource "aws_security_group" "rds_sg" {
   description = "Allow PostgreSQL access strictly from Backend and Worker"
   vpc_id      = aws_vpc.main_vpc.id
 
-  # Database traffic ONLY allowed from Backend SG
-    ingress {
+  # Database traffic allowed from Backend and Worker SGs
+  ingress {
     description     = "PostgreSQL from Backend and Worker SGs"
     from_port       = 5432
     to_port         = 5432
@@ -101,16 +101,6 @@ resource "aws_security_group" "rds_sg" {
       aws_security_group.backend_sg.id, 
       aws_security_group.worker_sg.id
     ]
-  }
-}
-
-  # Database traffic ONLY allowed from Worker SG
-  ingress {
-    description     = "PostgreSQL from Worker SG"
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.worker_sg.id]
   }
 
   egress {

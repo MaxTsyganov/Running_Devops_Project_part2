@@ -37,15 +37,3 @@ variable "bucket_name" {
   description = "Globally unique name for the S3 bucket"
   type        = string
 }
-
-variable "ami_id" {
-  description = "The AMI ID for the EC2 instances (Ubuntu 24.04)"
-  type        = string
-  default     = "ami-04b70fa74e45c3917" # This is the us-east-1 Ubuntu 24.04 AMI
-}
-
-variable "instance_type" {
-  description = "The EC2 instance type"
-  type        = string
-  default     = "t2.micro"
-}

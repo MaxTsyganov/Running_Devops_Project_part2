@@ -105,6 +105,16 @@
         virtualenv: /home/ubuntu/app/backend/venv
         virtualenv_command: /usr/bin/python3 -m venv
 
+    # ---> NEW INITIALIZATION TASK GOES HERE <---
+    - name: Initialize PostgreSQL database tables
+      ansible.builtin.shell: |
+        source venv/bin/activate
+        python -c "from app import init_db; init_db()"
+      args:
+        chdir: /home/ubuntu/app/backend
+        executable: /bin/bash
+    # -------------------------------------------
+
     - name: Register systemd service for Backend
       command: cp /home/ubuntu/app/backend/backend.service /etc/systemd/system/backend.service
 

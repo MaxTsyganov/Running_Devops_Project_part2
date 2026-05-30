@@ -1,339 +1,81 @@
-# 3-Tier AWS Application — DevOps Deployment Guide
+# 3-Tier AWS Application - Automated DevOps Deployment
 
-A deliberately simple web application built to demonstrate a **manual, hands-on AWS deployment** across three separate EC2 servers.
+This project takes a manual 3-tier web application deployment on AWS and makes it completely automatic using Terraform and Ansible.
 
----
+## Project Architecture
 
-## Architecture Overview
+The application runs on three separate Ubuntu servers in AWS:
+1. **Frontend Server:** Runs Nginx to serve the website.
+2. **Backend Server:** Runs a Python Flask API to connect the website to the database and storage.
+3. **Worker Server:** Runs a background Python script that checks the database for new tasks and processes them.
 
-```
-  ┌─────────────────────────────────────────────────────────────────┐
-  │                        AWS Cloud (VPC)                          │
-  │                                                                 │
-  │  ┌──────────────┐   HTTP /api/*   ┌──────────────────────────┐ │
-  │  │   Server 1   │ ──────────────► │       Server 2           │ │
-  │  │              │                 │                          │ │
-  │  │  Nginx       │                 │   Python Flask API       │ │
-  │  │  (Frontend)  │ ◄────────────── │   (Backend)  :5000       │ │
-  │  │  :80         │   JSON response │                          │ │
-  │  └──────────────┘                 └──────────┬───────────────┘ │
-  │        ▲                                     │                 │
-  │        │ Browser                             │ psycopg2        │
-  │        │ (port 80)                           ▼                 │
-  │                                   ┌──────────────────────────┐ │
-  │  ┌──────────────┐                 │   AWS RDS                │ │
-  │  │   Server 3   │ ──psycopg2───►  │   PostgreSQL :5432       │ │
-  │  │              │                 └──────────────────────────┘ │
-  │  │  Python      │                                              │
-  │  │  Worker      │ ──boto3 SNS──►  AWS SNS (email to you)       │
-  │  │  (polls DB)  │                                              │
-  │  └──────────────┘                 ┌──────────────────────────┐ │
-  │                                   │   AWS S3                 │ │
-  │  Server 2 ──boto3 S3 ──────────►  │   (file storage)         │ │
-  │  Server 2 ──boto3 SNS ─────────►  AWS SNS (email to you)       │
-  │                                                                 │
-  └─────────────────────────────────────────────────────────────────┘
-```
+### AWS Services Used
+* **Networking:** VPC, Public Subnet, Internet Gateway, Route Tables.
+* **Servers:** 3 EC2 instances.
+* **Database:** RDS PostgreSQL.
+* **Storage:** S3 Bucket for file uploads.
+* **Notifications:** SNS Topic for sending email alerts.
+* **Security:** IAM Roles and Security Groups.
 
-### How the tiers communicate
+### Architecture Decision: Public Subnets
+To keep the project in the AWS Free Tier and avoid paying the hourly cost for a NAT Gateway, all three servers are placed in a Public Subnet. Security is maintained entirely through AWS Security Groups. The backend server and the database cannot be accessed directly from the internet; they only accept traffic from our specific servers.
 
-| From | To | Method |
-|---|---|---|
-| Browser | Nginx (Server 1) | HTTP port 80 |
-| Nginx (Server 1) | Flask API (Server 2) | HTTP reverse proxy → port 5000 |
-| Flask API (Server 2) | RDS PostgreSQL | psycopg2 TCP → port 5432 |
-| Flask API (Server 2) | S3 | boto3 HTTPS |
-| Flask API (Server 2) | SNS | boto3 HTTPS |
-| Worker (Server 3) | RDS PostgreSQL | psycopg2 TCP → port 5432 (direct, no API hop) |
-| Worker (Server 3) | SNS | boto3 HTTPS |
+## Tool Responsibilities
+
+### What Terraform Does (Infrastructure)
+Terraform is responsible for building the physical cloud environment. It creates the VPC, the subnets, the security rules, the IAM roles, the three EC2 servers, the RDS database, the S3 bucket, and the SNS topic. 
+
+### What Ansible Does (Configuration)
+Ansible is responsible for configuring the servers after they are created. It logs into the servers to install packages (like Python and Nginx), copies the application code, sets up the virtual environments, injects the dynamic AWS links into the code, and starts the background services.
+
+## Secret Management and Variables
+
+Passwords and secret keys are never uploaded to GitHub.
+
+* **Terraform Variables:** We use a file called `terraform.tfvars` to pass information. A safe template called `terraform.tfvars.example` is included in the code. Users must copy this file, rename it to `terraform.tfvars`, and enter their own database password and email address.
+* **Ansible Variables:** We use a file called `vars.yml` in the ansible folder to pass the database password and AWS links to the servers.
+
+## Terraform State Management
+
+The Terraform state file (`terraform.tfstate`) acts as a live map of the AWS environment. For this project, the state is managed locally on the computer running the code. 
+
+Because the state file contains the master database password in plain text, it is a security risk. All `.tfstate` files have been added to the `.gitignore` file so they are never accidentally uploaded to version control.
 
 ---
 
-## Project File Structure
+## How to Run the Project
 
-```
-Running_Devops_Project_part2/
-│
-├── frontend/
-│   ├── index.html        ← Single-page app (HTML + vanilla JS)
-│   └── nginx.conf        ← Nginx reverse-proxy config
-│
-├── backend/
-│   ├── app.py            ← Flask API (RDS reads/writes, S3 upload, SNS)
-│   ├── requirements.txt
-│   ├── .env.template     ← Copy to .env and fill in values
-│   └── backend.service   ← systemd unit (runs gunicorn on boot)
-│
-└── worker/
-    ├── worker.py         ← Background worker (polls DB, sends SNS)
-    ├── requirements.txt
-    ├── .env.template
-    └── worker.service    ← systemd unit (runs worker on boot)
-```
+### Step 1: Build the Infrastructure with Terraform
+1. Open a terminal and navigate to the `terraform` folder.
+2. Copy `terraform.tfvars.example` and rename it to `terraform.tfvars`. Fill in your email, a database password, and an S3 bucket name.
+3. Run the following commands:
+   `terraform init`
+   `terraform apply`
+4. Type `yes` to confirm. When it finishes, copy the IP addresses it prints on the screen.
+
+### Step 2: Configure the Servers with Ansible
+1. Navigate to the `ansible` folder.
+2. Open the `inventory.ini` file. Update the public IP addresses for the frontend, backend, and worker. Also update the private_ip variable on the backend line.
+3. Open the `vars.yml` file and enter your database password, the RDS endpoint link (make sure to remove the port [:5432] from the end of the the endpoint, Python add it automatically), the S3 bucket name, and the SNS ARN link.
+4. Run the following command:
+   `ansible-playbook -i inventory.ini playbook.yml`
 
 ---
 
-## Part 1 — AWS Prerequisites
+## How to Check if the System Works
 
-Do these once before touching any EC2 instance.
-
-### 1.1 Create an RDS PostgreSQL instance
-
-1. Go to **RDS → Create database**
-2. Engine: **PostgreSQL**, Version: 15.x
-3. Template: **Free tier** (for learning)
-4. DB instance identifier: `appdb-instance`
-5. Master username: `postgres`  |  Master password: (save this!)
-6. **VPC**: Same VPC as your EC2 instances
-7. **Public access**: No (keep it private inside the VPC)
-8. **VPC security group**: Create new → name it `rds-sg`
-9. Note the **Endpoint** after it's created (looks like `appdb-instance.xxxxx.us-east-1.rds.amazonaws.com`)
-
-**RDS Security Group rule** (after EC2 instances are created):
-- Type: PostgreSQL | Port: 5432 | Source: Security group of Backend EC2 **and** Worker EC2
-
-### 1.2 Create an S3 bucket
-
-1. Go to **S3 → Create bucket**
-2. Name: `your-app-uploads-YYYYMMDD` (must be globally unique)
-3. Region: Same as EC2
-4. Block all public access: **On** (leave default)
-5. Note the bucket name
-
-### 1.3 Create an SNS Topic
-
-1. Go to **SNS → Topics → Create topic**
-2. Type: **Standard**
-3. Name: `app-notifications`
-4. After creation, note the **Topic ARN** (looks like `arn:aws:sns:us-east-1:123456789012:app-notifications`)
-
-**Subscribe your email:**
-1. Click the topic → **Create subscription**
-2. Protocol: **Email**
-3. Endpoint: your email address
-4. Check your inbox → click the confirmation link SNS sends
-
-### 1.4 Create an IAM Role for EC2 (Recommended)
-
-Using an IAM Role is **more secure** than putting access keys in .env files.
-
-1. Go to **IAM → Roles → Create role**
-2. Trusted entity: **EC2**
-3. Attach these managed policies:
-   - `AmazonS3FullAccess` (or a custom policy scoped to your bucket)
-   - `AmazonSNSFullAccess` (or scoped to your topic)
-4. Name: `ec2-app-role`
-5. Attach this role to **both** your Backend and Worker EC2 instances
-   (Instance → Actions → Security → Modify IAM Role)
+Once Ansible finishes without any errors, the website is live.
+1. Open a web browser and go to the Frontend Public IP address.
+2. **Test the Database:** Add a new item on the website. It should appear at the bottom with a "pending" status, and you should receive an email alert.
+3. **Test S3:** Upload a file through the website. You should see a green success message and receive another email.
+4. **Test the Worker:** Wait about 30 seconds and refresh the webpage. The item's status should change from "pending" to "done".
 
 ---
 
-## Part 2 — Launch Three EC2 Instances
+## How to Delete the Environment
 
-Launch **three separate** EC2 instances (one per tier). Use:
-- AMI: **Amazon Linux 2023** (or Ubuntu 22.04)
-- Instance type: **t2.micro** (Free Tier)
-- Same VPC, different roles
-
-### Security Groups
-
-| Instance | Inbound Rules |
-|---|---|
-| Server 1 (Frontend / Nginx) | TCP 80 from `0.0.0.0/0` (public web traffic) |
-| Server 2 (Backend / Flask) | TCP 5000 from **Security Group of Server 1 only** |
-| Server 3 (Worker) | No inbound needed (it only makes outbound connections) |
-
-> **Key principle:** The backend is never directly reachable from the internet — only Nginx can call it.
-
----
-
-## Part 3 — Deploy the Backend (Server 2)
-
-SSH into **Server 2**.
-
-```bash
-# 1. Install dependencies
-sudo dnf update -y
-sudo dnf install -y python3.11 python3.11-pip git
-
-# 2. Copy project files to the server
-# Option A: git clone (if you push to GitHub)
-git clone https://github.com/YOUR_USERNAME/YOUR_REPO.git /home/ec2-user/app
-# Option B: scp from your local machine
-# scp -r backend/ ec2-user@SERVER2_IP:/home/ec2-user/app/
-
-# 3. Create Python virtual environment
-cd /home/ec2-user/app/backend
-python3.11 -m venv venv
-source venv/bin/activate
-
-# 4. Install Python packages
-pip install -r requirements.txt
-
-# 5. Configure environment variables
-cp .env.template .env
-nano .env
-# Fill in: DB_HOST, DB_NAME, DB_USER, DB_PASSWORD
-#          S3_BUCKET_NAME, SNS_TOPIC_ARN, AWS_REGION
-# If using IAM Role (recommended): leave AWS_ACCESS_KEY_ID blank
-
-# 6. Test that it works
-python app.py
-# You should see: "Starting Flask dev server on 0.0.0.0:5000"
-# Test: curl http://localhost:5000/api/health
-# Press Ctrl+C when done
-
-# 7. Install as a systemd service (runs on boot)
-sudo cp backend.service /etc/systemd/system/backend.service
-sudo systemctl daemon-reload
-sudo systemctl enable backend
-sudo systemctl start backend
-sudo systemctl status backend
-```
-
-**Verify the backend is working:**
-```bash
-# From Server 2 itself:
-curl http://localhost:5000/api/health
-# Expected: {"status": "ok", "db": "reachable"}
-
-curl http://localhost:5000/api/items
-# Expected: {"items": []}
-```
-
----
-
-## Part 4 — Deploy the Worker (Server 3)
-
-SSH into **Server 3**.
-
-```bash
-# 1. Install Python
-sudo dnf update -y
-sudo dnf install -y python3.11 python3.11-pip git
-
-# 2. Copy worker files
-# scp -r worker/ ec2-user@SERVER3_IP:/home/ec2-user/app/
-cd /home/ec2-user/app/worker
-
-# 3. Virtual environment + packages
-python3.11 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# 4. Configure .env
-cp .env.template .env
-nano .env
-# Fill in the same DB_* values as the backend
-# Fill in SNS_TOPIC_ARN and AWS_REGION
-
-# 5. Test it runs
-python worker.py
-# You should see the worker start polling every 30 seconds
-# Press Ctrl+C when done
-
-# 6. Install as a systemd service
-sudo cp worker.service /etc/systemd/system/worker.service
-sudo systemctl daemon-reload
-sudo systemctl enable worker
-sudo systemctl start worker
-sudo systemctl status worker
-
-# View live logs:
-journalctl -u worker -f
-```
-
----
-
-## Part 5 — Deploy the Frontend (Server 1)
-
-SSH into **Server 1**.
-
-```bash
-# 1. Install Nginx
-sudo dnf update -y
-sudo dnf install -y nginx
-
-# 2. Edit nginx.conf — set the backend IP
-# IMPORTANT: Replace BACKEND_SERVER_IP with Server 2's PRIVATE IP address
-nano /home/ec2-user/app/frontend/nginx.conf
-# Change this line:
-#   proxy_pass  http://BACKEND_SERVER_IP:5000;
-# To (example):
-#   proxy_pass  http://10.0.1.55:5000;
-
-# 3. Install config and HTML
-sudo cp /home/ec2-user/app/frontend/nginx.conf /etc/nginx/conf.d/app.conf
-sudo cp /home/ec2-user/app/frontend/index.html /usr/share/nginx/html/index.html
-
-# 4. Remove the default Nginx page
-sudo rm -f /etc/nginx/conf.d/default.conf
-
-# 5. Test config and start Nginx
-sudo nginx -t
-sudo systemctl enable nginx
-sudo systemctl start nginx
-sudo systemctl status nginx
-```
-
-**Verify:** Open your browser → `http://SERVER1_PUBLIC_IP`
-
-You should see the app UI. The green dot in the header means the API is reachable.
-
----
-
-## Part 6 — End-to-End Test
-
-1. **Open** `http://SERVER1_PUBLIC_IP` in your browser
-2. **Create an item** — type a name → click "Add Item"
-   - Item appears in the list below (status: `pending`)
-   - You receive an email via SNS: "New item created"
-3. **Upload a file** — choose any file → click "Upload to S3"
-   - Success message with the S3 key
-   - You receive an email via SNS: "New file uploaded"
-4. **Wait ~30 seconds** for the worker to run
-   - Click Refresh — the item's status changes from `pending` → `done`
-   - You receive a batch email from the worker: "Items processed"
-
----
-
-## Environment Variables Reference
-
-| Variable | Used by | Description |
-|---|---|---|
-| `DB_HOST` | backend, worker | RDS endpoint URL |
-| `DB_PORT` | backend, worker | PostgreSQL port (default 5432) |
-| `DB_NAME` | backend, worker | Database name |
-| `DB_USER` | backend, worker | Database username |
-| `DB_PASSWORD` | backend, worker | Database password |
-| `AWS_REGION` | backend, worker | e.g. `us-east-1` |
-| `S3_BUCKET_NAME` | backend | Name of your S3 bucket |
-| `SNS_TOPIC_ARN` | backend, worker | Full SNS Topic ARN |
-| `AWS_ACCESS_KEY_ID` | backend, worker | Leave blank if using IAM Role |
-| `AWS_SECRET_ACCESS_KEY` | backend, worker | Leave blank if using IAM Role |
-| `POLL_INTERVAL_SECONDS` | worker | How often to check DB (default 30s) |
-
----
-
-## API Endpoints (Backend, port 5000)
-
-| Method | Path | Description | AWS Service |
-|---|---|---|---|
-| `GET` | `/api/health` | Liveness + DB check | RDS |
-| `GET` | `/api/items` | List all items | RDS (read) |
-| `POST` | `/api/items` | Create item + notify | RDS (write) + SNS |
-| `POST` | `/api/upload` | Upload file + notify | S3 + RDS + SNS |
-| `GET` | `/api/uploads` | List all upload records | RDS (read) |
-
----
-
-## Troubleshooting
-
-| Problem | Fix |
-|---|---|
-| `502 Bad Gateway` from Nginx | Backend isn't running on Server 2. Check `systemctl status backend` |
-| `Database connection failed` | Check RDS security group — allow inbound 5432 from Backend/Worker EC2 security groups |
-| `S3 upload failed` | Check IAM Role (or access keys) has `s3:PutObject` permission on the bucket |
-| `SNS notification skipped` | Check `SNS_TOPIC_ARN` is set. Confirm email subscription in SNS console |
-| Worker not updating items | Check `systemctl status worker`. Look at `journalctl -u worker` for DB errors |
-| Can't reach backend from Nginx | Verify Nginx `proxy_pass` uses the **private** IP of Server 2, port 5000 |
+When you are finished testing, you must delete the environment so AWS does not charge you money.
+1. Navigate to the `terraform` folder.
+2. Run the following command:
+   `terraform destroy`
+3. Type `yes` to confirm. This will safely delete all servers, databases, and networks.

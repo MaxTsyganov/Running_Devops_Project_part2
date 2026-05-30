@@ -34,6 +34,7 @@ resource "aws_db_instance" "postgres" {
 # 3. S3 Bucket
 resource "aws_s3_bucket" "app_bucket" {
   bucket = var.bucket_name
+  force_destroy = true
 
   tags = {
     Name = "DevOps-App-Bucket"
