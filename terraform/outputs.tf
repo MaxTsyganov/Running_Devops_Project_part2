@@ -54,6 +54,9 @@ resource "local_file" "ansible_inventory" {
 
     [worker]
     ${aws_instance.worker.public_ip}
+
+    [all:vars]
+    ansible_user=ubuntu
   EOT
 }
 
@@ -64,8 +67,9 @@ resource "local_file" "ansible_vars" {
   filename = "../ansible/vars.yml"
   content  = <<-EOT
     backend_private_ip: "${aws_instance.backend.private_ip}"
-    rds_endpoint: "${aws_db_instance.postgres.address}"
-    s3_bucket_name: "${aws_s3_bucket.app_bucket.bucket}"
-    sns_topic_arn: "${aws_sns_topic.alerts.arn}"
+    db_host: "${aws_db_instance.postgres.address}"
+    db_password: "${var.db_password}"
+    s3_bucket: "${aws_s3_bucket.app_bucket.bucket}"
+    sns_arn: "${aws_sns_topic.alerts.arn}"
   EOT
 }
