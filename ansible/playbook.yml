@@ -31,6 +31,7 @@
   become: yes
   vars_files:
     - vars.yml
+    - secrets.yml
   tasks:
     - name: Install Nginx
       apt:
@@ -71,7 +72,8 @@
   hosts: backend
   become: yes
   vars_files:
-    - vars.yml # Load our secure variables
+    - vars.yml
+    - secrets.yml # Load our secure variables
   tasks:
     - name: Copy backend application code to server
       copy:
@@ -133,6 +135,7 @@
   become: yes
   vars_files:
     - vars.yml
+    - secrets.yml
   tasks:
     - name: Copy worker application code to server
       copy:

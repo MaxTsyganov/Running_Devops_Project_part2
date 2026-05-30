@@ -68,7 +68,6 @@ resource "local_file" "ansible_vars" {
   content  = <<-EOT
     backend_private_ip: "${aws_instance.backend.private_ip}"
     db_host: "${aws_db_instance.postgres.address}"
-    db_password: "${var.db_password}"
     s3_bucket: "${aws_s3_bucket.app_bucket.bucket}"
     sns_arn: "${aws_sns_topic.alerts.arn}"
   EOT
