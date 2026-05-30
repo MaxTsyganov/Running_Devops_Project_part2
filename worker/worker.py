@@ -1,19 +1,7 @@
 """
-=============================================================
-  TIER 3 — Background Worker
-=============================================================
-Responsibilities:
-  • Poll PostgreSQL (RDS) every 30 seconds for 'pending' items
-  • Process each item (simulate work, then mark as 'done')
-  • Send an SNS email notification for each item it processes
-
-This process runs independently on its OWN EC2 server.
-It DOES NOT call the backend API — it connects directly to
-the shared RDS database, just like the backend does.
-
-Run (foreground) : python worker.py
-Run (background) : see worker.service (systemd unit file)
-=============================================================
+Tier 3: Background Worker
+This script runs independently to check the database for new tasks.
+It processes pending items and sends an email when they are finished.
 """
 
 import os
@@ -27,43 +15,35 @@ import psycopg2.extras
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 
-# ── Load .env file (dev convenience) ─────────────────────────────────────────
+# Load environment variables from the .env file
 load_dotenv()
 
-# ── Logging ──────────────────────────────────────────────────────────────────
+# Configure logging to print messages to the console
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
 )
 logger = logging.getLogger("worker")
 
-# ─────────────────────────────────────────────────────────────────────────────
-#   Configuration  (mirrors backend .env.template)
-# ─────────────────────────────────────────────────────────────────────────────
-
-# --- PostgreSQL / RDS ---------------------------------------------------------
-DB_HOST = os.environ.get("DB_HOST",     "localhost")
-DB_PORT = os.environ.get("DB_PORT",     "5432")
-DB_NAME = os.environ.get("DB_NAME",     "appdb")
-DB_USER = os.environ.get("DB_USER",     "postgres")
+# Database configuration pulled from environment variables
+DB_HOST = os.environ.get("DB_HOST", "localhost")
+DB_PORT = os.environ.get("DB_PORT", "5432")
+DB_NAME = os.environ.get("DB_NAME", "appdb")
+DB_USER = os.environ.get("DB_USER", "postgres")
 DB_PASSWORD = os.environ.get("DB_PASSWORD", "changeme")
 
-# --- AWS (leave blank on EC2 with IAM Role) -----------------------------------
-AWS_REGION = os.environ.get("AWS_REGION",            "us-east-1")
-SNS_TOPIC_ARN = os.environ.get("SNS_TOPIC_ARN",         "")
-AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID",     "") or None
+# AWS configuration pulled from environment variables
+AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
+SNS_TOPIC_ARN = os.environ.get("SNS_TOPIC_ARN", "")
+AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID", "") or None
 AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY", "") or None
 
-# How often (seconds) the worker wakes up to check for pending items
+# Set how often the worker checks the database (in seconds)
 POLL_INTERVAL_SECONDS = int(os.environ.get("POLL_INTERVAL_SECONDS", "30"))
 
 
-# =============================================================================
-#   Helpers
-# =============================================================================
-
 def get_db_connection():
-    """Open a new psycopg2 connection to RDS."""
+    """Create a connection to the PostgreSQL database."""
     return psycopg2.connect(
         host=DB_HOST,
         port=int(DB_PORT),
@@ -75,9 +55,9 @@ def get_db_connection():
 
 
 def publish_sns(subject: str, message: str):
-    """Send a notification email via SNS to all topic subscribers."""
+    """Send an email notification using AWS SNS."""
     if not SNS_TOPIC_ARN:
-        logger.warning("SNS_TOPIC_ARN not set — notification skipped.")
+        logger.warning("SNS topic is missing. Notification skipped.")
         return
     try:
         sns = boto3.client(
@@ -91,20 +71,14 @@ def publish_sns(subject: str, message: str):
             Subject=subject,
             Message=message,
         )
-        logger.info(f"SNS notification sent — MessageId: {resp['MessageId']}")
+        logger.info(
+            f"Notification sent successfully. Message ID: {resp['MessageId']}")
     except ClientError:
-        logger.exception("SNS publish failed")
+        logger.exception("Failed to send notification")
 
-
-# =============================================================================
-#   Core Worker Logic
-# =============================================================================
 
 def fetch_pending_items(conn) -> list[dict]:
-    """
-    Read all items with status='pending' from the database.
-    This is the READ operation on RDS.
-    """
+    """Find all items in the database that are marked as 'pending'."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("""
             SELECT id, name, description, created_at
@@ -116,10 +90,7 @@ def fetch_pending_items(conn) -> list[dict]:
 
 
 def mark_item_done(conn, item_id: int):
-    """
-    Update a single item's status to 'done' and stamp the processed_at time.
-    This is the WRITE operation on RDS (from the worker side).
-    """
+    """Update an item's status in the database to 'done'."""
     with conn.cursor() as cur:
         cur.execute("""
             UPDATE items
@@ -131,31 +102,18 @@ def mark_item_done(conn, item_id: int):
 
 
 def process_item(item: dict):
-    """
-    Simulate business logic for one item.
-    Replace this with real work (e.g. resize images, run ML inference, etc.)
-    """
-    logger.info(f"Processing item id={item['id']} name='{item['name']}' …")
-
-    # ── Simulated processing delay (replace with real work) ──────────────────
+    """Simulate working on a task by pausing for half a second."""
+    logger.info(f"Processing item ID {item['id']} named '{item['name']}'...")
     time.sleep(0.5)
-
-    logger.info(f"Item id={item['id']} processed successfully.")
+    logger.info(f"Item ID {item['id']} processed successfully.")
 
 
 def run_one_cycle():
-    """
-    One full poll-and-process cycle:
-      1. Connect to RDS
-      2. Fetch all pending items
-      3. Process each item
-      4. Mark each item as 'done'
-      5. Send a single SNS summary email if anything was processed
-    """
+    """Check the database, process any pending items, and send an alert."""
     try:
         conn = get_db_connection()
     except Exception:
-        logger.exception("Cannot connect to database — will retry next cycle")
+        logger.exception("Cannot connect to the database. Will retry later.")
         return
 
     try:
@@ -166,7 +124,8 @@ def run_one_cycle():
             conn.close()
             return
 
-        logger.info(f"Found {len(pending)} pending item(s) — processing …")
+        logger.info(
+            f"Found {len(pending)} pending item(s). Starting processing...")
         processed_names = []
 
         for item in pending:
@@ -174,15 +133,14 @@ def run_one_cycle():
                 process_item(item)
                 mark_item_done(conn, item["id"])
                 processed_names.append(item["name"])
-                logger.info(f"Item id={item['id']} marked as done.")
+                logger.info(f"Item ID {item['id']} marked as done.")
             except Exception:
-                logger.exception(f"Failed to process item id={item['id']}")
-                # Continue with the remaining items even if one fails
+                logger.exception(f"Failed to process item ID {item['id']}")
 
-        # ── Send a single SNS batch-summary email ─────────────────────────────
+        # Send a summary email if any items were processed
         if processed_names:
             count = len(processed_names)
-            names_list = "\n".join(f"  • {n}" for n in processed_names)
+            names_list = "\n".join(f"  - {n}" for n in processed_names)
             publish_sns(
                 subject=f"[Worker] {count} item(s) processed successfully",
                 message=(
@@ -196,21 +154,17 @@ def run_one_cycle():
         conn.close()
 
 
-# =============================================================================
-#   Main Loop
-# =============================================================================
-
 def main():
-    logger.info("=" * 60)
-    logger.info("  Background Worker started")
-    logger.info(f"  Database : {DB_HOST}:{DB_PORT}/{DB_NAME}")
-    logger.info(f"  Poll interval : {POLL_INTERVAL_SECONDS}s")
-    logger.info("=" * 60)
+    """Start the infinite loop to keep the worker running."""
+    logger.info("Background Worker started.")
+    logger.info(f"Database target: {DB_HOST}:{DB_PORT}/{DB_NAME}")
+    logger.info(f"Checking every {POLL_INTERVAL_SECONDS} seconds.")
 
     while True:
-        logger.info("─── Starting new poll cycle ───────────────────────────")
+        logger.info("Starting a new check cycle...")
         run_one_cycle()
-        logger.info(f"Cycle complete. Sleeping {POLL_INTERVAL_SECONDS}s …\n")
+        logger.info(
+            f"Cycle complete. Waiting {POLL_INTERVAL_SECONDS} seconds...\n")
         time.sleep(POLL_INTERVAL_SECONDS)
 
 

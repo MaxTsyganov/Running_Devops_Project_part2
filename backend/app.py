@@ -1,19 +1,7 @@
 """
-=============================================================
-  TIER 2 — Python Backend API  (Flask)
-=============================================================
-Responsibilities:
-  • CRUD operations on PostgreSQL (AWS RDS)
-  • File uploads to AWS S3
-  • Email notifications via AWS SNS
-
-Listens on  :  0.0.0.0:5000
-Nginx proxy  :  /api/* requests are forwarded here from the
-                frontend server.
-
-Run (dev)    :  python app.py
-Run (prod)   :  gunicorn -w 4 -b 0.0.0.0:5000 app:app
-=============================================================
+Tier 2: Python Backend API
+This script handles the database connections, file uploads to AWS S3,
+and sends email notifications using AWS SNS.
 """
 
 import os
@@ -28,46 +16,37 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-# ── Load .env file (dev convenience; in prod use real env vars) ──────────────
+# Load environment variables from the .env file
 load_dotenv()
 
-# ── Logging ──────────────────────────────────────────────────────────────────
+# Configure logging to print messages to the console
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
 )
 logger = logging.getLogger("backend")
 
-# ── Flask App ─────────────────────────────────────────────────────────────────
+# Initialize the Flask application and allow cross-origin requests from the frontend
 app = Flask(__name__)
-# Allow the Nginx frontend server to call this API across origins.
 CORS(app)
 
-# ─────────────────────────────────────────────────────────────────────────────
-#   Configuration  (all values come from environment variables)
-# ─────────────────────────────────────────────────────────────────────────────
-
-# --- PostgreSQL / RDS ---------------------------------------------------------
-DB_HOST = os.environ.get("DB_HOST",     "localhost")
-DB_PORT = os.environ.get("DB_PORT",     "5432")
-DB_NAME = os.environ.get("DB_NAME",     "appdb")
-DB_USER = os.environ.get("DB_USER",     "postgres")
+# Database configuration pulled from environment variables
+DB_HOST = os.environ.get("DB_HOST", "localhost")
+DB_PORT = os.environ.get("DB_PORT", "5432")
+DB_NAME = os.environ.get("DB_NAME", "appdb")
+DB_USER = os.environ.get("DB_USER", "postgres")
 DB_PASSWORD = os.environ.get("DB_PASSWORD", "changeme")
 
-# --- AWS (leave blank on EC2 — IAM Role supplies credentials automatically) --
-AWS_REGION = os.environ.get("AWS_REGION",            "us-east-1")
-S3_BUCKET_NAME = os.environ.get("S3_BUCKET_NAME",        "")
-SNS_TOPIC_ARN = os.environ.get("SNS_TOPIC_ARN",         "")
-AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID",     "") or None
+# AWS configuration pulled from environment variables
+AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
+S3_BUCKET_NAME = os.environ.get("S3_BUCKET_NAME", "")
+SNS_TOPIC_ARN = os.environ.get("SNS_TOPIC_ARN", "")
+AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID", "") or None
 AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY", "") or None
 
 
-# =============================================================================
-#   Helpers — Database
-# =============================================================================
-
 def get_db_connection():
-    """Open and return a new psycopg2 connection to the RDS instance."""
+    """Create a connection to the PostgreSQL database."""
     return psycopg2.connect(
         host=DB_HOST,
         port=int(DB_PORT),
@@ -79,14 +58,11 @@ def get_db_connection():
 
 
 def init_db():
-    """
-    Create application tables if they don't exist yet.
-    Called once at startup so the app is self-bootstrapping.
-    """
+    """Create the necessary database tables if they do not exist yet."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
-            # items — the main data model
+            # Create the table for storing application tasks
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS items (
                     id           SERIAL       PRIMARY KEY,
@@ -97,7 +73,7 @@ def init_db():
                     processed_at TIMESTAMP
                 );
             """)
-            # uploads — track every S3 file that was uploaded
+            # Create the table for tracking file uploads
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS uploads (
                     id         SERIAL       PRIMARY KEY,
@@ -107,25 +83,17 @@ def init_db():
                 );
             """)
         conn.commit()
-        logger.info("Database tables initialised.")
+        logger.info("Database tables initialized successfully.")
     except Exception:
         conn.rollback()
-        logger.exception("DB initialisation failed")
+        logger.exception("Database initialization failed")
         raise
     finally:
         conn.close()
 
 
-# =============================================================================
-#   Helpers — AWS
-# =============================================================================
-
 def _aws_kwargs():
-    """
-    Return boto3 credential kwargs.
-    On EC2 with an IAM Role these are empty — boto3 picks up the role
-    automatically.  For local dev you can put real keys in .env.
-    """
+    """Provide AWS credentials if they are set manually in the environment."""
     return dict(
         region_name=AWS_REGION,
         aws_access_key_id=AWS_ACCESS_KEY_ID,
@@ -134,46 +102,34 @@ def _aws_kwargs():
 
 
 def publish_sns(subject: str, message: str):
-    """
-    Publish a plain-text message to the SNS topic.
-    Any email address subscribed to the topic will receive this.
-    """
+    """Send an email notification using AWS SNS."""
     if not SNS_TOPIC_ARN:
-        logger.warning("SNS_TOPIC_ARN not set — notification skipped.")
+        logger.warning("SNS topic is missing. Notification skipped.")
         return
     try:
         sns = boto3.client("sns", **_aws_kwargs())
         resp = sns.publish(
             TopicArn=SNS_TOPIC_ARN,
-            Subject=subject,   # shown as email subject
-            Message=message,   # shown as email body
+            Subject=subject,
+            Message=message,
         )
-        logger.info(f"SNS published — MessageId: {resp['MessageId']}")
+        logger.info(
+            f"Notification sent successfully. Message ID: {resp['MessageId']}")
     except ClientError:
-        logger.exception("SNS publish failed")  # log but don't crash the API
+        logger.exception("Failed to send notification")
 
 
 def _row_to_dict(row: dict) -> dict:
-    """Convert psycopg2 RealDictRow to a JSON-serialisable plain dict."""
+    """Convert a database row into a dictionary format suitable for JSON."""
     out = {}
     for k, v in row.items():
         out[k] = v.isoformat() if isinstance(v, datetime) else v
     return out
 
 
-# =============================================================================
-#   Routes
-# =============================================================================
-
-# ── Health ────────────────────────────────────────────────────────────────────
-
 @app.get("/api/health")
 def health():
-    """
-    GET /api/health
-    Quick liveness + database-reachability check.
-    Load balancer / Nginx can poll this endpoint.
-    """
+    """Check if the API and database are running correctly."""
     try:
         conn = get_db_connection()
         conn.close()
@@ -182,38 +138,28 @@ def health():
         return jsonify({"status": "error", "detail": str(exc)}), 503
 
 
-# ── Items (RDS read + write) ──────────────────────────────────────────────────
-
 @app.get("/api/items")
 def list_items():
-    """
-    GET /api/items
-    READ from RDS — returns all items ordered newest-first.
-    """
+    """Fetch all items from the database and sort them by the newest first."""
     try:
         conn = get_db_connection()
-        # RealDictCursor gives us column-name keys instead of positional indices
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("SELECT * FROM items ORDER BY created_at DESC;")
             rows = cur.fetchall()
         conn.close()
         return jsonify({"items": [_row_to_dict(r) for r in rows]}), 200
     except Exception as exc:
-        logger.exception("GET /api/items failed")
+        logger.exception("Failed to fetch items")
         return jsonify({"error": str(exc)}), 500
 
 
 @app.post("/api/items")
 def create_item():
-    """
-    POST /api/items   { "name": "...", "description": "..." }
-    WRITE to RDS — inserts a new item with status='pending',
-    then fires an SNS email notification.
-    """
+    """Add a new item to the database and send a notification."""
     body = request.get_json(silent=True) or {}
     name = (body.get("name") or "").strip()
     if not name:
-        return jsonify({"error": "'name' is required"}), 400
+        return jsonify({"error": "Name is required"}), 400
 
     description = (body.get("description") or "").strip()
 
@@ -231,12 +177,12 @@ def create_item():
             row_id, status, created_at = cur.fetchone()
         conn.commit()
         conn.close()
-        logger.info(f"Item created — id={row_id} name='{name}'")
+        logger.info(f"Item created with ID {row_id}")
     except Exception as exc:
-        logger.exception("POST /api/items DB write failed")
+        logger.exception("Failed to save item to database")
         return jsonify({"error": str(exc)}), 500
 
-    # Fire-and-forget SNS notification
+    # Send an email alert that a new item was added
     publish_sns(
         subject=f"[App] New item created: {name}",
         message=(
@@ -258,29 +204,24 @@ def create_item():
     }), 201
 
 
-# ── File upload (S3) ──────────────────────────────────────────────────────────
-
 @app.post("/api/upload")
 def upload_file():
-    """
-    POST /api/upload   (multipart/form-data, field: 'file')
-    Uploads the file to S3, records it in RDS, then sends an SNS notification.
-    """
+    """Upload a file to an S3 bucket and save the record in the database."""
     if "file" not in request.files:
-        return jsonify({"error": "No file field in request"}), 400
+        return jsonify({"error": "No file included in the request"}), 400
 
     f = request.files["file"]
     if not f.filename:
-        return jsonify({"error": "File has no filename"}), 400
+        return jsonify({"error": "File does not have a name"}), 400
 
     if not S3_BUCKET_NAME:
-        return jsonify({"error": "S3_BUCKET_NAME not configured on server"}), 500
+        return jsonify({"error": "S3 bucket name is missing"}), 500
 
-    # Prefix with timestamp to make every key unique
+    # Add a timestamp to the file name to prevent overwriting existing files
     ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     s3_key = f"uploads/{ts}_{f.filename}"
 
-    # ── Step 1: Upload to S3 ─────────────────────────────────────────────────
+    # Upload the file to AWS S3
     try:
         s3 = boto3.client("s3", **_aws_kwargs())
         s3.upload_fileobj(
@@ -290,12 +231,12 @@ def upload_file():
             ExtraArgs={
                 "ContentType": f.content_type or "application/octet-stream"},
         )
-        logger.info(f"S3 upload OK — s3://{S3_BUCKET_NAME}/{s3_key}")
+        logger.info(f"File uploaded to S3 successfully: {s3_key}")
     except ClientError:
-        logger.exception("S3 upload failed")
+        logger.exception("Failed to upload file to S3")
         return jsonify({"error": "S3 upload failed"}), 500
 
-    # ── Step 2: Record upload in RDS ─────────────────────────────────────────
+    # Save the upload details in the database
     try:
         conn = get_db_connection()
         with conn.cursor() as cur:
@@ -303,16 +244,16 @@ def upload_file():
                 "INSERT INTO uploads (filename, s3_key) VALUES (%s, %s) RETURNING id;",
                 (f.filename, s3_key),
             )
-            upload_id = cur.fetchone()[0]
+            upload_id = cur.fetchone()
         conn.commit()
         conn.close()
     except Exception as exc:
-        logger.exception("Upload DB record failed")
+        logger.exception("Failed to save upload record in database")
         return jsonify({"error": str(exc)}), 500
 
     s3_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{s3_key}"
 
-    # ── Step 3: SNS notification ─────────────────────────────────────────────
+    # Send an email alert that a file was uploaded
     publish_sns(
         subject=f"[App] New file uploaded: {f.filename}",
         message=(
@@ -333,33 +274,8 @@ def upload_file():
     }), 201
 
 
-# ── Uploads list ──────────────────────────────────────────────────────────────
-
-@app.get("/api/uploads")
-def list_uploads():
-    """
-    GET /api/uploads
-    Return all previously uploaded file records from RDS.
-    """
-    try:
-        conn = get_db_connection()
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT * FROM uploads ORDER BY created_at DESC;")
-            rows = cur.fetchall()
-        conn.close()
-        return jsonify({"uploads": [_row_to_dict(r) for r in rows]}), 200
-    except Exception as exc:
-        logger.exception("GET /api/uploads failed")
-        return jsonify({"error": str(exc)}), 500
-
-
-# =============================================================================
-#   Entry Point
-# =============================================================================
-
 if __name__ == "__main__":
-    logger.info("Bootstrapping database tables …")
+    logger.info("Initializing database tables...")
     init_db()
-    logger.info("Starting Flask dev server on 0.0.0.0:5000 …")
-    # debug=False in prod — use gunicorn instead
+    logger.info("Starting Flask application on port 5000...")
     app.run(host="0.0.0.0", port=5000, debug=False)

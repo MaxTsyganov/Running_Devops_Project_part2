@@ -1,10 +1,8 @@
 ---
-# ==============================================================================
-# PLAY 1: BASE SETUP (Applies to all 3 servers)
-# ==============================================================================
+# Step 1: Base Configuration (Applies to all servers)
 - name: Initialize Server Baseline
   hosts: all
-  become: yes # Run as root (sudo)
+  become: yes 
   tasks:
     - name: Update apt cache and install base dependencies
       apt:
@@ -23,22 +21,20 @@
         group: ubuntu
         mode: '0755'
 
-# ==============================================================================
-# PLAY 2: FRONTEND (Nginx Reverse Proxy)
-# ==============================================================================
+# Step 2: Configure the Frontend Web Server
 - name: Deploy Frontend
   hosts: frontend
   become: yes
   vars_files:
     - vars.yml
   tasks:
-    - name: Create SSL directory
+    - name: Create SSL directory for secure connections
       file:
         path: /etc/nginx/ssl
         state: directory
         mode: '0755'
 
-    - name: Generate self-signed SSL certificate
+    - name: Generate a self-signed SSL certificate
       command: >
         openssl req -x509 -nodes -days 365 -newkey rsa:2048
         -keyout /etc/nginx/ssl/nginx.key
@@ -46,41 +42,40 @@
         -subj "/C=IL/ST=Israel/L=TelAviv/O=JohnBryce/OU=DevOps/CN=max-project.local"
       args:
         creates: /etc/nginx/ssl/nginx.crt
-    - name: Install Nginx
+        
+    - name: Install Nginx web server
       apt:
         name: nginx
         state: present
 
-    - name: Copy index.html to Nginx web root
+    - name: Copy the website files to the server
       copy:
         src: ../frontend/index.html
         dest: /usr/share/nginx/html/index.html
 
-    - name: Copy Nginx configuration file
+    - name: Copy the Nginx configuration settings
       copy:
         src: ../frontend/nginx.conf
         dest: /etc/nginx/conf.d/app.conf
 
-    - name: Dynamically inject Backend Private IP into Nginx proxy
+    - name: Connect Nginx to the Backend using the dynamic IP
       replace:
         path: /etc/nginx/conf.d/app.conf
         regexp: 'BACKEND_SERVER_IP'
         replace: "{{ backend_private_ip }}"
 
-    - name: Remove default Nginx welcome page
+    - name: Remove the default Nginx welcome page
       file:
         path: /etc/nginx/sites-enabled/default
         state: absent
 
-    - name: Restart and enable Nginx service
+    - name: Restart and enable Nginx to apply changes
       systemd:
         name: nginx
         state: restarted
         enabled: yes
 
-# ==============================================================================
-# PLAY 3: BACKEND (Python Flask API)
-# ==============================================================================
+# Step 3: Configure the Python Backend API
 - name: Deploy Backend API
   hosts: backend
   become: yes
@@ -88,14 +83,14 @@
     - vars.yml
     - secrets.yml
   tasks:
-    - name: Copy backend application code to server
+    - name: Copy backend application code to the server
       copy:
         src: ../backend/
         dest: /home/ubuntu/app/backend/
         owner: ubuntu
         group: ubuntu
 
-    - name: Generate the .env file dynamically
+    - name: Create the .env configuration file dynamically
       copy:
         dest: /home/ubuntu/app/backend/.env
         content: |
@@ -108,40 +103,37 @@
           S3_BUCKET_NAME={{ s3_bucket }}
           SNS_TOPIC_ARN={{ sns_arn }}
 
-    - name: Fix OS User (Replace ec2-user with ubuntu in service file)
+    - name: Update the service file to use the ubuntu user
       replace:
         path: /home/ubuntu/app/backend/backend.service
         regexp: 'ec2-user'
         replace: 'ubuntu'
 
-    - name: Create Python Virtual Environment and install Requirements
+    - name: Create a Python Virtual Environment and install packages
       pip:
         requirements: /home/ubuntu/app/backend/requirements.txt
         virtualenv: /home/ubuntu/app/backend/venv
         virtualenv_command: /usr/bin/python3 -m venv
 
-    - name: Initialize PostgreSQL database tables
+    - name: Initialize the database tables
       ansible.builtin.shell: |
         source venv/bin/activate
         python -c "from app import init_db; init_db()"
       args:
         chdir: /home/ubuntu/app/backend
         executable: /bin/bash
-    # -------------------------------------------
 
-    - name: Register systemd service for Backend
+    - name: Register the system service for the Backend
       command: cp /home/ubuntu/app/backend/backend.service /etc/systemd/system/backend.service
 
-    - name: Start and enable Backend service
+    - name: Start and enable the Backend service
       systemd:
         name: backend
         daemon_reload: yes
         state: restarted
         enabled: yes
 
-# ==============================================================================
-# PLAY 4: WORKER (Python Background Job)
-# ==============================================================================
+# Step 4: Configure the Background Worker
 - name: Deploy Background Worker
   hosts: worker
   become: yes
@@ -149,14 +141,14 @@
     - vars.yml
     - secrets.yml
   tasks:
-    - name: Copy worker application code to server
+    - name: Copy worker application code to the server
       copy:
         src: ../worker/
         dest: /home/ubuntu/app/worker/
         owner: ubuntu
         group: ubuntu
 
-    - name: Generate the .env file dynamically
+    - name: Create the .env configuration file dynamically
       copy:
         dest: /home/ubuntu/app/worker/.env
         content: |
@@ -169,31 +161,29 @@
           SNS_TOPIC_ARN={{ sns_arn }}
           POLL_INTERVAL_SECONDS=30
 
-    - name: Fix OS User (Replace ec2-user with ubuntu in service file)
+    - name: Update the service file to use the ubuntu user
       replace:
         path: /home/ubuntu/app/worker/worker.service
         regexp: 'ec2-user'
         replace: 'ubuntu'
 
-    - name: Create Python Virtual Environment and install Requirements
+    - name: Create a Python Virtual Environment and install packages
       pip:
         requirements: /home/ubuntu/app/worker/requirements.txt
         virtualenv: /home/ubuntu/app/worker/venv
         virtualenv_command: /usr/bin/python3 -m venv
 
-    - name: Register systemd service for Worker
+    - name: Register the system service for the Worker
       command: cp /home/ubuntu/app/worker/worker.service /etc/systemd/system/worker.service
 
-    - name: Start and enable Worker service
+    - name: Start and enable the Worker service
       systemd:
         name: worker
         daemon_reload: yes
         state: restarted
         enabled: yes
 
-# ==============================================================================
-# PLAY 5: HEALTH CHECKS (Deployment Verification)
-# ==============================================================================
+# Step 5: Verify the Deployment
 - name: Post-Deployment Health Checks
   hosts: frontend
   become: yes
@@ -202,7 +192,7 @@
       pause:
         seconds: 15
 
-    - name: Health Check 1 - Verify Frontend (Nginx) is serving the UI
+    - name: Verify the Frontend is serving the website
       uri:
         url: https://localhost/
         validate_certs: no
@@ -210,12 +200,10 @@
       register: frontend_check
       failed_when: frontend_check.status != 200
 
-    - name: Health Check 2 - Verify Backend API (Flask) is reachable via Proxy
+    - name: Verify the Backend API is reachable through the Proxy
       uri:
         url: https://localhost/api/
         validate_certs: no
         return_content: yes
       register: backend_check
-      # A 502 Bad Gateway means Nginx can't reach Flask. 
-      # As long as it's not a 502, the reverse proxy connection is alive!
       failed_when: backend_check.status == 502
