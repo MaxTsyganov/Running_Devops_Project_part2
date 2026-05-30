@@ -9,12 +9,20 @@ command -v ansible-playbook >/dev/null 2>&1 || { echo "Ansible is not installed.
 echo "Starting infrastructure deployment..."
 
 # Gather required information from the user
-read -p "Enter AWS Key Pair Name: " USER_KEY_NAME
-read -p "Enter full path to .pem file: " USER_PEM_PATH
-read -p "Enter S3 Bucket name (lowercase, hyphens only): " USER_BUCKET
-read -p "Enter email for SNS alerts: " USER_EMAIL
-read -s -p "Enter Ansible Vault Password: " VAULT_PASS
+read -r -p "Enter AWS Key Pair Name: " USER_KEY_NAME
+read -r -p "Enter full path to .pem file: " USER_PEM_PATH
+read -r -p "Enter S3 Bucket name (lowercase, hyphens only): " USER_BUCKET
+read -r -p "Enter email for SNS alerts: " USER_EMAIL
+read -r -s -p "Enter Ansible Vault Password: " VAULT_PASS
 echo ""
+
+# Sanitize the Windows path:
+# 1. Remove double quotes
+USER_PEM_PATH="${USER_PEM_PATH//\"/}"
+# 2. Remove single quotes
+USER_PEM_PATH="${USER_PEM_PATH//\'/}"
+# 3. Remove invisible Windows carriage returns (\r)
+USER_PEM_PATH="${USER_PEM_PATH//$'\r'/}"
 
 # Create a variable file for Terraform using the user inputs
 cat <<EOF > terraform/terraform.tfvars
@@ -34,25 +42,30 @@ cd ..
 echo "Waiting for EC2 instances to initialize (60 seconds)..."
 sleep 60
 
-# Run Ansible to install and configure the application on the servers
+# --- 6. Configure Application (Ansible) ---
 echo "Running Ansible Playbook..."
 cd ansible
 
-# Save the Vault password to a temporary file for Ansible to read securely
-echo "$VAULT_PASS" > .vault_tmp
-chmod 600 .vault_tmp
+# 1. Secure the Vault Password in /tmp
+echo "$VAULT_PASS" > /tmp/.vault_tmp
+chmod 600 /tmp/.vault_tmp
 
-# Suppress warnings about folder permissions
-export ANSIBLE_CONFIG=/dev/null
+# 2. Copy the PEM key to /tmp to prevent SSH path-spacing errors
+cp "$(wslpath -u "${USER_PEM_PATH}")" /tmp/project_key.pem
+chmod 400 /tmp/project_key.pem
+
+# 3. Apply configurations
+export ANSIBLE_CONFIG=ansible.cfg
 export ANSIBLE_HOST_KEY_CHECKING=False
 
-# Execute the playbook, converting the Windows path to a format Linux understands
+# Execute the playbook using the safe Linux paths
 ansible-playbook -i inventory.ini playbook.yml \
-    --private-key "$(wslpath -u "${USER_PEM_PATH}")" \
-    --vault-password-file .vault_tmp
+    --private-key /tmp/project_key.pem \
+    --vault-password-file /tmp/.vault_tmp
 
-# Delete the temporary password file to keep things secure
-rm -f .vault_tmp
+# 4. Clean up all temporary security files
+rm -f /tmp/.vault_tmp
+rm -f /tmp/project_key.pem
 unset VAULT_PASS
 
 cd ..
