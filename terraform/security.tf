@@ -1,10 +1,10 @@
 # 1. Frontend Security Group
 resource "aws_security_group" "frontend_sg" {
   name        = "frontend_sg"
-  description = "Allow HTTP from internet and SSH for Ansible"
+  description = "Allow HTTP/HTTPS from internet and SSH for Ansible"
   vpc_id      = aws_vpc.main_vpc.id
 
-  # HTTP Rule - Allowed from anywhere (0.0.0.0/0) so the public can view the site
+  # HTTP Rule - Allowed from anywhere
   ingress {
     description = "HTTP from anywhere"
     from_port   = 80
@@ -13,7 +13,16 @@ resource "aws_security_group" "frontend_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # SSH Rule - Allowed from anywhere (0.0.0.0/0) ONLY because Ansible requires access from a dynamic local IP
+  # HTTPS Rule - Allowed from anywhere (NEW)
+  ingress {
+    description = "HTTPS from anywhere"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # SSH Rule - Allowed from anywhere
   ingress {
     description = "SSH for Ansible (Required for local provisioning)"
     from_port   = 22

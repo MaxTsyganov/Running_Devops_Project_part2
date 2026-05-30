@@ -31,8 +31,21 @@
   become: yes
   vars_files:
     - vars.yml
-    - secrets.yml
   tasks:
+    - name: Create SSL directory
+      file:
+        path: /etc/nginx/ssl
+        state: directory
+        mode: '0755'
+
+    - name: Generate self-signed SSL certificate
+      command: >
+        openssl req -x509 -nodes -days 365 -newkey rsa:2048
+        -keyout /etc/nginx/ssl/nginx.key
+        -out /etc/nginx/ssl/nginx.crt
+        -subj "/C=IL/ST=Israel/L=TelAviv/O=JohnBryce/OU=DevOps/CN=max-project.local"
+      args:
+        creates: /etc/nginx/ssl/nginx.crt
     - name: Install Nginx
       apt:
         name: nginx
@@ -73,7 +86,7 @@
   become: yes
   vars_files:
     - vars.yml
-    - secrets.yml # Load our secure variables
+    - secrets.yml
   tasks:
     - name: Copy backend application code to server
       copy:
@@ -107,7 +120,6 @@
         virtualenv: /home/ubuntu/app/backend/venv
         virtualenv_command: /usr/bin/python3 -m venv
 
-    # ---> NEW INITIALIZATION TASK GOES HERE <---
     - name: Initialize PostgreSQL database tables
       ansible.builtin.shell: |
         source venv/bin/activate
@@ -178,3 +190,32 @@
         daemon_reload: yes
         state: restarted
         enabled: yes
+
+# ==============================================================================
+# PLAY 5: HEALTH CHECKS (Deployment Verification)
+# ==============================================================================
+- name: Post-Deployment Health Checks
+  hosts: frontend
+  become: yes
+  tasks:
+    - name: Wait for services to fully initialize
+      pause:
+        seconds: 15
+
+    - name: Health Check 1 - Verify Frontend (Nginx) is serving the UI
+      uri:
+        url: https://localhost/
+        validate_certs: no
+        return_content: yes
+      register: frontend_check
+      failed_when: frontend_check.status != 200
+
+    - name: Health Check 2 - Verify Backend API (Flask) is reachable via Proxy
+      uri:
+        url: https://localhost/api/
+        validate_certs: no
+        return_content: yes
+      register: backend_check
+      # A 502 Bad Gateway means Nginx can't reach Flask. 
+      # As long as it's not a 502, the reverse proxy connection is alive!
+      failed_when: backend_check.status == 502

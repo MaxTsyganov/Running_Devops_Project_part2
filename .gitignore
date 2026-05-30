@@ -21,3 +21,14 @@ vars.yml
 *.tfstate.*
 crash.log
 *.zip
+
+# Terraform
+.terraform/
+terraform.tfstate
+terraform.tfstate.backup
+.terraform.tflock.hcl
+*.tfvars
+
+# Ansible
+inventory.ini
+.vault_tmp
