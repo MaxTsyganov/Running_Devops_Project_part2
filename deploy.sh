@@ -8,11 +8,31 @@ command -v ansible-playbook >/dev/null 2>&1 || { echo "Ansible is not installed.
 
 echo "Starting infrastructure deployment..."
 
-# Gather required information from the user
-read -r -p "Enter AWS Key Pair Name: " USER_KEY_NAME
-read -r -p "Enter full path to .pem file: " USER_PEM_PATH
-read -r -p "Enter S3 Bucket name (lowercase, hyphens only): " USER_BUCKET
-read -r -p "Enter email for SNS alerts: " USER_EMAIL
+# --- 1. Smart Terraform Configuration ---
+# Check if the variables file exists. If not, create it interactively.
+if [ ! -f "terraform/terraform.tfvars" ]; then
+    echo "No terraform.tfvars file found. Let's configure your environment!"
+    read -r -p "Enter AWS Key Pair Name: " USER_KEY_NAME
+    read -r -p "Enter S3 Bucket name (lowercase, hyphens only): " USER_BUCKET
+    read -r -p "Enter email for SNS alerts: " USER_EMAIL
+    read -r -s -p "Enter a strong password for your RDS Database: " DB_PASS
+    echo ""
+    
+    # Generate the file safely
+    cat <<EOF > terraform/terraform.tfvars
+key_name    = "${USER_KEY_NAME}"
+bucket_name = "${USER_BUCKET}"
+my_email    = "${USER_EMAIL}"
+db_password = "${DB_PASS}"
+EOF
+    echo "Created terraform/terraform.tfvars successfully."
+    echo "---"
+else
+    echo "Found existing terraform/terraform.tfvars. Using saved configuration."
+fi
+
+# --- 2. Gather Ansible Runtime Credentials ---
+read -r -p "Enter full path to your .pem file: " USER_PEM_PATH
 read -r -s -p "Enter Ansible Vault Password: " VAULT_PASS
 echo ""
 
@@ -24,14 +44,7 @@ USER_PEM_PATH="${USER_PEM_PATH//\'/}"
 # 3. Remove invisible Windows carriage returns (\r)
 USER_PEM_PATH="${USER_PEM_PATH//$'\r'/}"
 
-# Create a variable file for Terraform using the user inputs
-cat <<EOF > terraform/terraform.tfvars
-key_name    = "${USER_KEY_NAME}"
-bucket_name = "${USER_BUCKET}"
-my_email    = "${USER_EMAIL}"
-EOF
-
-# Initialize and run Terraform to build the AWS infrastructure
+# --- 3. Run Terraform ---
 echo "Initializing and Applying Terraform..."
 cd terraform
 terraform init -input=false
@@ -42,7 +55,7 @@ cd ..
 echo "Waiting for EC2 instances to initialize (60 seconds)..."
 sleep 60
 
-# --- 6. Configure Application (Ansible) ---
+# --- 4. Configure Application (Ansible) ---
 echo "Running Ansible Playbook..."
 cd ansible
 
