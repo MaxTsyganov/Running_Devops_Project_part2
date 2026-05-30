@@ -42,16 +42,16 @@ logger = logging.getLogger("worker")
 # ─────────────────────────────────────────────────────────────────────────────
 
 # --- PostgreSQL / RDS ---------------------------------------------------------
-DB_HOST     = os.environ.get("DB_HOST",     "localhost")
-DB_PORT     = os.environ.get("DB_PORT",     "5432")
-DB_NAME     = os.environ.get("DB_NAME",     "appdb")
-DB_USER     = os.environ.get("DB_USER",     "postgres")
+DB_HOST = os.environ.get("DB_HOST",     "localhost")
+DB_PORT = os.environ.get("DB_PORT",     "5432")
+DB_NAME = os.environ.get("DB_NAME",     "appdb")
+DB_USER = os.environ.get("DB_USER",     "postgres")
 DB_PASSWORD = os.environ.get("DB_PASSWORD", "changeme")
 
 # --- AWS (leave blank on EC2 with IAM Role) -----------------------------------
-AWS_REGION            = os.environ.get("AWS_REGION",            "us-east-1")
-SNS_TOPIC_ARN         = os.environ.get("SNS_TOPIC_ARN",         "")
-AWS_ACCESS_KEY_ID     = os.environ.get("AWS_ACCESS_KEY_ID",     "") or None
+AWS_REGION = os.environ.get("AWS_REGION",            "us-east-1")
+SNS_TOPIC_ARN = os.environ.get("SNS_TOPIC_ARN",         "")
+AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID",     "") or None
 AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY", "") or None
 
 # How often (seconds) the worker wakes up to check for pending items

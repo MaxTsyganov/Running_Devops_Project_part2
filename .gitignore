@@ -9,6 +9,14 @@ __pycache__/
 *.log
 backend.log
 worker.log
+*.tfvars
 
 # OS generated files
 .DS_Store
+vars.yml
+
+# Terraform core files
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log

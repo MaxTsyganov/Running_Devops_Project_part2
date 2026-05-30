@@ -48,17 +48,17 @@ CORS(app)
 # ─────────────────────────────────────────────────────────────────────────────
 
 # --- PostgreSQL / RDS ---------------------------------------------------------
-DB_HOST     = os.environ.get("DB_HOST",     "localhost")
-DB_PORT     = os.environ.get("DB_PORT",     "5432")
-DB_NAME     = os.environ.get("DB_NAME",     "appdb")
-DB_USER     = os.environ.get("DB_USER",     "postgres")
+DB_HOST = os.environ.get("DB_HOST",     "localhost")
+DB_PORT = os.environ.get("DB_PORT",     "5432")
+DB_NAME = os.environ.get("DB_NAME",     "appdb")
+DB_USER = os.environ.get("DB_USER",     "postgres")
 DB_PASSWORD = os.environ.get("DB_PASSWORD", "changeme")
 
 # --- AWS (leave blank on EC2 — IAM Role supplies credentials automatically) --
-AWS_REGION            = os.environ.get("AWS_REGION",            "us-east-1")
-S3_BUCKET_NAME        = os.environ.get("S3_BUCKET_NAME",        "")
-SNS_TOPIC_ARN         = os.environ.get("SNS_TOPIC_ARN",         "")
-AWS_ACCESS_KEY_ID     = os.environ.get("AWS_ACCESS_KEY_ID",     "") or None
+AWS_REGION = os.environ.get("AWS_REGION",            "us-east-1")
+S3_BUCKET_NAME = os.environ.get("S3_BUCKET_NAME",        "")
+SNS_TOPIC_ARN = os.environ.get("SNS_TOPIC_ARN",         "")
+AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID",     "") or None
 AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY", "") or None
 
 
@@ -277,7 +277,7 @@ def upload_file():
         return jsonify({"error": "S3_BUCKET_NAME not configured on server"}), 500
 
     # Prefix with timestamp to make every key unique
-    ts     = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     s3_key = f"uploads/{ts}_{f.filename}"
 
     # ── Step 1: Upload to S3 ─────────────────────────────────────────────────
@@ -287,7 +287,8 @@ def upload_file():
             f,
             S3_BUCKET_NAME,
             s3_key,
-            ExtraArgs={"ContentType": f.content_type or "application/octet-stream"},
+            ExtraArgs={
+                "ContentType": f.content_type or "application/octet-stream"},
         )
         logger.info(f"S3 upload OK — s3://{S3_BUCKET_NAME}/{s3_key}")
     except ClientError:
